@@ -1,0 +1,23 @@
+name: Test Self-Hosted Runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  test-runner:
+    runs-on: [self-hosted, Linux, X64, devsecops]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test runner
+        run: |
+          echo "Runner self-hosted funcionando"
+          whoami
+          hostname
+          docker --version
+          python3 --version
