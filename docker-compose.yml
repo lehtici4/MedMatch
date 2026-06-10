@@ -1,0 +1,24 @@
+services:
+  # Serviço do GitHub Actions Runner containerizado
+  github-runner:
+    
+    # Constrói a imagem a partir do Dockerfile em .github/runner
+    build:
+      context: .github/runner
+
+    # Variáveis de ambiente passadas para o container
+    # Lidas do arquivo .env que não é commitado no GitHub
+    environment:
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+      - RUNNER_NAME=${RUNNER_NAME}
+
+    # Volumes montados no container
+    volumes:
+      # Permite que o runner execute comandos Docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Compartilha as credenciais do Kubernetes com o runner (somente leitura)
+      - ~/.kube:/home/devsecops/.kube:ro
+
+    # Reinicia o container automaticamente se ele cair
+    # unless-stopped: reinicia sempre, exceto se parado manualmente
+    restart: unless-stopped
