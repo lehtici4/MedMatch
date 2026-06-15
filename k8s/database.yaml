@@ -1,0 +1,214 @@
+# ─────────────────────────────────────────────────────────────────
+# BANCOS DE DADOS — MedMatch
+# 3 BDs separados conforme arquitetura do amigo
+# Secrets injetados via secretKeyRef (sem hardcode, sem .env)
+# ─────────────────────────────────────────────────────────────────
+
+# ── BD de Credenciais (auth + recovery) ──────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: credentials-db
+  namespace: medmatch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: credentials-db
+  template:
+    metadata:
+      labels:
+        app: credentials-db
+    spec:
+      securityContext:
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-credentials-db-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-credentials-db-secret
+                  key: MYSQL_DATABASE
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-credentials-db-secret
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-credentials-db-secret
+                  key: MYSQL_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: credentials-db
+  namespace: medmatch
+spec:
+  selector:
+    app: credentials-db
+  ports:
+    - port: 3306
+      targetPort: 3306
+  type: ClusterIP
+
+---
+# ── BD de Médicos ─────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: doctors-db
+  namespace: medmatch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: doctors-db
+  template:
+    metadata:
+      labels:
+        app: doctors-db
+    spec:
+      securityContext:
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-doctors-db-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-doctors-db-secret
+                  key: MYSQL_DATABASE
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-doctors-db-secret
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-doctors-db-secret
+                  key: MYSQL_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: doctors-db
+  namespace: medmatch
+spec:
+  selector:
+    app: doctors-db
+  ports:
+    - port: 3306
+      targetPort: 3306
+  type: ClusterIP
+
+---
+# ── BD de Agendamentos ────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduling-db
+  namespace: medmatch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scheduling-db
+  template:
+    metadata:
+      labels:
+        app: scheduling-db
+    spec:
+      securityContext:
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-scheduling-db-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-scheduling-db-secret
+                  key: MYSQL_DATABASE
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-scheduling-db-secret
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-scheduling-db-secret
+                  key: MYSQL_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduling-db
+  namespace: medmatch
+spec:
+  selector:
+    app: scheduling-db
+  ports:
+    - port: 3306
+      targetPort: 3306
+  type: ClusterIP

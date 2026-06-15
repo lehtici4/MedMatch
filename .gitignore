@@ -1,2 +1,33 @@
-# Variáveis de ambiente sensíveis
+# ── Secrets — NUNCA commitar ──────────────────────────────────────
+# Todos os secrets ficam no GitHub Secrets, não no repositório
 .env
+*.env
+.env.*
+k8s/secrets.yaml
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# ── Docker ────────────────────────────────────────────────────────
+.docker/
+
+# ── Kubernetes ────────────────────────────────────────────────────
+*.kubeconfig
+kubeconfig
+.kube/
+
+# ── Relatórios de segurança (gerados pela pipeline) ───────────────
+semgrep-report.json
+safety-report.txt
+
+# ── Sistema ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
