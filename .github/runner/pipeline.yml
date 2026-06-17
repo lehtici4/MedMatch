@@ -123,6 +123,11 @@ jobs:
           docker build -t $IMAGE_PREFIX-gateway:latest microsservicos/gateway/
           docker push $IMAGE_PREFIX-gateway:latest
 
+      - name: Build e Push — frontend
+        run: |
+          docker build -t $IMAGE_PREFIX-frontend:latest frontend/
+          docker push $IMAGE_PREFIX-frontend:latest 
+
   # ─────────────────────────────────────────────
   # ETAPA 3 — IMPLANTAÇÃO CONTÍNUA
   # Deploy no Kubernetes
@@ -228,6 +233,10 @@ jobs:
         run: |
           kubectl apply -f k8s-rendered/gateway.yaml
 
+      - name: Aplicar frontend
+        run: |
+          kubectl apply -f k8s-rendered/frontend.yaml
+
       - name: Verificar status do rollout
         run: |
           kubectl rollout status deployment/auth-service -n medmatch --timeout=180s
@@ -235,7 +244,8 @@ jobs:
           kubectl rollout status deployment/doctors-service -n medmatch --timeout=180s
           kubectl rollout status deployment/schedule-service -n medmatch --timeout=180s
           kubectl rollout status deployment/gateway -n medmatch --timeout=180s
-
+          kubectl rollout status deployment/frontend -n medmatch --timeout=180s
+          
       - name: Exibir recursos implantados
         run: |
           kubectl get pods -n medmatch -o wide
