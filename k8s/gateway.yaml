@@ -58,6 +58,4 @@ spec:
     - port: 80
       targetPort: 8000
       nodePort: 30080
-  # NodePort = único serviço exposto externamente
-  # Todos os outros são ClusterIP (inacessíveis de fora)
   type: NodePort

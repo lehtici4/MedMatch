@@ -13,7 +13,8 @@ jobs:
 
   # ─────────────────────────────────────────────
   # ETAPA 1 — INTEGRAÇÃO CONTÍNUA (CI)
-  # Segurança de Aplicação: SAST + SCA
+  # Testes + SAST + SCA
+  # Roda em push e pull_request
   # ─────────────────────────────────────────────
   ci:
     name: "CI — Testes, SAST e SCA"
@@ -26,20 +27,36 @@ jobs:
       - name: Instalar dependências Python
         run: |
           python3 -m pip install --upgrade pip
-          pip install safety semgrep pytest fastapi httpx
+          pip install safety semgrep pytest
 
-      # ── SCA: verifica vulnerabilidades nas dependências ──
-      - name: "SCA — Safety (dependências vulneráveis)"
-        run: |
           for service in auth_service doctors_service schedule_service recovery_service gateway; do
             if [ -f "microsservicos/$service/requirements.txt" ]; then
-              echo "==> Verificando $service"
-              safety check -r microsservicos/$service/requirements.txt --output text || true
+              echo "==> Instalando dependências de $service"
+              pip install -r "microsservicos/$service/requirements.txt"
             fi
           done
 
-      # ── SAST: analisa o código Python ──
-      - name: "SAST — Semgrep (análise estática OWASP)"
+      # ── SCA: verifica vulnerabilidades nas dependências ──
+      - name: "SCA — Safety"
+        run: |
+          echo "Relatório SCA — Safety" > safety-report.txt
+
+          for service in auth_service doctors_service schedule_service recovery_service gateway; do
+            if [ -f "microsservicos/$service/requirements.txt" ]; then
+              echo "" >> safety-report.txt
+              echo "==> Verificando $service" | tee -a safety-report.txt
+              safety check -r "microsservicos/$service/requirements.txt" --output text >> safety-report.txt || true
+            fi
+          done
+
+      - name: Upload relatório Safety
+        uses: actions/upload-artifact@v4
+        with:
+          name: safety-report
+          path: safety-report.txt
+
+      # ── SAST: analisa código Python ──
+      - name: "SAST — Semgrep"
         run: |
           semgrep scan \
             --config "p/python" \
@@ -56,22 +73,28 @@ jobs:
           path: semgrep-report.json
 
       - name: Rodar testes unitários
-        run: pytest microsservicos/ --tb=short -q || true
+        run: |
+          if find microsservicos -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+            pytest microsservicos/ --tb=short -q
+          else
+            echo "Nenhum teste unitário encontrado ainda. Etapa mantida como informativa."
+          fi
 
   # ─────────────────────────────────────────────
-  # ETAPA 2 — ENTREGA CONTÍNUA (CD Build)
-  # Build + Push das imagens Docker no Docker Hub
+  # ETAPA 2 — ENTREGA CONTÍNUA
+  # Build + Push das imagens Docker
+  # Só roda em push na main
   # ─────────────────────────────────────────────
   build-and-push:
     name: "CD — Build e Push das imagens Docker"
     runs-on: [self-hosted, Linux, X64, devsecops]
     needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
 
-      # Senha do Docker Hub vem do GitHub Secrets — nunca do .env
       - name: Login no Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
@@ -101,18 +124,20 @@ jobs:
           docker push $IMAGE_PREFIX-gateway:latest
 
   # ─────────────────────────────────────────────
-  # ETAPA 3 — IMPLANTAÇÃO CONTÍNUA (CD Deploy)
+  # ETAPA 3 — IMPLANTAÇÃO CONTÍNUA
+  # Deploy no Kubernetes
+  # Só roda em push na main
   # ─────────────────────────────────────────────
   deploy:
     name: "CD — Deploy no Kubernetes"
     runs-on: [self-hosted, Linux, X64, devsecops]
     needs: build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
 
-      # kubeconfig vem do GitHub Secrets — nunca do .env
       - name: Configurar kubeconfig
         run: |
           mkdir -p ~/.kube
@@ -120,13 +145,11 @@ jobs:
           chmod 600 ~/.kube/config
 
       - name: Criar namespace medmatch
-        run: kubectl create namespace medmatch --dry-run=client -o yaml | kubectl apply -f -
-
-      # ── SEGURANÇA: Secrets criados direto do GitHub Secrets ──
-      # Nenhuma senha toca o repositório — nem em Base64, nem em .env
-      - name: "Criar Kubernetes Secrets via GitHub Secrets"
         run: |
-          # Secret do banco de credenciais (auth + recovery)
+          kubectl create namespace medmatch --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Criar Kubernetes Secrets via GitHub Secrets
+        run: |
           kubectl create secret generic medmatch-credentials-db-secret \
             --namespace=medmatch \
             --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
@@ -135,7 +158,6 @@ jobs:
             --from-literal=MYSQL_DATABASE="medmatch_credentials" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
-          # Secret do banco de médicos
           kubectl create secret generic medmatch-doctors-db-secret \
             --namespace=medmatch \
             --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
@@ -144,7 +166,6 @@ jobs:
             --from-literal=MYSQL_DATABASE="medmatch_doctors" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
-          # Secret do banco de agendamentos
           kubectl create secret generic medmatch-scheduling-db-secret \
             --namespace=medmatch \
             --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
@@ -153,17 +174,59 @@ jobs:
             --from-literal=MYSQL_DATABASE="medmatch_scheduling" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
-          # Secret JWT compartilhado entre os serviços
           kubectl create secret generic medmatch-jwt-secret \
             --namespace=medmatch \
             --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Aplicar manifestos Kubernetes (sem secrets.yaml)
-        run: kubectl apply -f k8s/
+      - name: Preparar manifestos Kubernetes
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          rm -rf k8s-rendered
+          cp -r k8s k8s-rendered
+
+          find k8s-rendered -type f -name "*.yaml" -exec sed -i "s|SEU_DOCKER_USER|$DOCKER_USERNAME|g" {} \;
+
+          if grep -R "SEU_DOCKER_USER" k8s-rendered; then
+            echo "ERRO: ainda existe placeholder SEU_DOCKER_USER nos manifestos."
+            exit 1
+          fi
+
+      - name: Aplicar bancos de dados
+        run: |
+          kubectl apply -f k8s-rendered/database.yaml
+
+      - name: Aguardar bancos de dados
+        run: |
+          kubectl rollout status deployment/credentials-db -n medmatch --timeout=180s
+          kubectl rollout status deployment/doctors-db -n medmatch --timeout=180s
+          kubectl rollout status deployment/scheduling-db -n medmatch --timeout=180s
+
+      - name: Aplicar microsserviços
+        run: |
+          kubectl apply -f k8s-rendered/deployments.yaml
+
+      - name: Aplicar gateway
+        run: |
+          kubectl apply -f k8s-rendered/gateway.yaml
 
       - name: Verificar status do rollout
         run: |
-          kubectl rollout status deployment/gateway -n medmatch --timeout=120s
-          kubectl rollout status deployment/auth-service -n medmatch --timeout=120s
-          kubectl rollout status deployment/schedule-service -n medmatch --timeout=120s
+          kubectl rollout status deployment/auth-service -n medmatch --timeout=180s
+          kubectl rollout status deployment/recovery-service -n medmatch --timeout=180s
+          kubectl rollout status deployment/doctors-service -n medmatch --timeout=180s
+          kubectl rollout status deployment/schedule-service -n medmatch --timeout=180s
+          kubectl rollout status deployment/gateway -n medmatch --timeout=180s
+
+      - name: Exibir recursos implantados
+        run: |
+          kubectl get pods -n medmatch -o wide
+          kubectl get svc -n medmatch
+
+      - name: Diagnóstico em caso de falha
+        if: failure()
+        run: |
+          kubectl get pods -n medmatch -o wide || true
+          kubectl describe pods -n medmatch || true
+          kubectl get events -n medmatch --sort-by=.lastTimestamp || true
