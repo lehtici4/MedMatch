@@ -5,7 +5,7 @@ Centraliza entrada de requisições, valida tokens e roteia para os microsservi�
 
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import httpx
 import logging
 import os
@@ -72,11 +72,25 @@ async def proxy(destino: str, request: Request, token: str | None = None) -> JSO
             if resp.status_code >= 500:
                 logger.error(f"Erro interno ao rotear para {destino}: {resp.text}")
                 return JSONResponse(status_code=502, content={"detail": "Serviço temporariamente indisponível"})
-            return JSONResponse(status_code=resp.status_code, content=resp.json())
+
+            if resp.status_code == 204 or not resp.content:
+                return Response(status_code=resp.status_code)
+
+            try:
+                content = resp.json()
+            except ValueError:
+                content = {"detail": resp.text}
+
+            return JSONResponse(status_code=resp.status_code, content=content)
         except httpx.RequestError as e:
             logger.error(f"Erro de conexão com {destino}: {e}")
             return JSONResponse(status_code=503, content={"detail": "Serviço indisponível"})
 
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "gateway"}
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -123,7 +137,3 @@ async def gateway(
     else:
         raise HTTPException(status_code=404, detail="Rota não encontrada")
 
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": "gateway"}

@@ -26,7 +26,9 @@ import os
 
 app = FastAPI(title="MedMatch - Scheduling Service")
 
-SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET não configurado")
 bearer_scheme = HTTPBearer()
 
 # Rate limiting
@@ -200,6 +202,9 @@ def remarcar_consulta(consulta_id: int, req: RemarcarRequest, usuario: dict = De
     novo_horario = cursor.fetchone()
     if not novo_horario:
         raise HTTPException(status_code=409, detail="Novo horário indisponível")
+
+    if novo_horario["medico_id"] != consulta["medico_id"]:
+        raise HTTPException(status_code=400, detail="Novo horário não pertence ao mesmo médico da consulta")
 
     try:
         # Liberar horário antigo e ocupar novo

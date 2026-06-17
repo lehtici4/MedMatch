@@ -22,7 +22,9 @@ import os
 
 app = FastAPI(title="MedMatch - Doctors & Specialties Service")
 
-SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET não configurado")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 # Rate Limiter

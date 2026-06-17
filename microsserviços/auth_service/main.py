@@ -19,7 +19,9 @@ import os
 app = FastAPI(title="MedMatch - Auth Service")
 
 # Config
-SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET não configurado")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -78,6 +80,9 @@ def registrar_usuario(req: RegisterRequest):
     perfis_validos = {"paciente", "medico", "administrador"}
     if req.perfil not in perfis_validos:
         raise HTTPException(status_code=400, detail="Perfil inválido")
+
+    if len(req.senha) < 8:
+        raise HTTPException(status_code=400, detail="A senha deve ter ao menos 8 caracteres")
 
     hash_senha = pwd_context.hash(req.senha)
     db = get_db()
