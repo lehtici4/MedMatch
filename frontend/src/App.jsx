@@ -388,8 +388,8 @@ function PacienteDashboard({ user }) {
                   {consultas.map(c => (
                     <tr key={c.id}>
                       <td>{new Date(c.data_hora).toLocaleString("pt-BR")}</td>
-                      <td>{c.medico_nome}</td>
-                      <td>{c.especialidade}</td>
+                      <td>{c.medico_nome || `Medico #${c.medico_id}`}</td>
+                      <td>{c.especialidade || "-"}</td>
                       <td><StatusBadge status={c.status} /></td>
                       <td>
                         {c.status === "agendada" &&

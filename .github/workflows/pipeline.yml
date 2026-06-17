@@ -1,0 +1,264 @@
+name: MedMatch CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, integration/final-medmatch]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_PREFIX: ${{ secrets.DOCKER_USERNAME }}/medmatch
+
+jobs:
+
+  # ─────────────────────────────────────────────
+  # ETAPA 1 — INTEGRAÇÃO CONTÍNUA (CI)
+  # Testes + SAST + SCA
+  # Roda em push e pull_request
+  # ─────────────────────────────────────────────
+  ci:
+    name: "CI — Testes, SAST e SCA"
+    runs-on: [self-hosted, Linux, X64, devsecops]
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Instalar dependências Python
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install safety semgrep pytest
+
+          for service in auth_service doctors_service schedule_service recovery_service gateway; do
+            if [ -f "microsservicos/$service/requirements.txt" ]; then
+              echo "==> Instalando dependências de $service"
+              pip install -r "microsservicos/$service/requirements.txt"
+            fi
+          done
+
+      # ── SCA: verifica vulnerabilidades nas dependências ──
+      - name: "SCA — Safety"
+        run: |
+          echo "Relatório SCA — Safety" > safety-report.txt
+
+          for service in auth_service doctors_service schedule_service recovery_service gateway; do
+            if [ -f "microsservicos/$service/requirements.txt" ]; then
+              echo "" >> safety-report.txt
+              echo "==> Verificando $service" | tee -a safety-report.txt
+              safety check -r "microsservicos/$service/requirements.txt" --output text >> safety-report.txt || true
+            fi
+          done
+
+      - name: Upload relatório Safety
+        uses: actions/upload-artifact@v4
+        with:
+          name: safety-report
+          path: safety-report.txt
+
+      # ── SAST: analisa código Python ──
+      - name: "SAST — Semgrep"
+        run: |
+          semgrep scan \
+            --config "p/python" \
+            --config "p/owasp-top-ten" \
+            --config "p/secrets" \
+            --output semgrep-report.json \
+            --json \
+            microsservicos/ || true
+
+      - name: Upload relatório Semgrep
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+
+      - name: Rodar testes unitários
+        run: |
+          if find microsservicos -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+            pytest microsservicos/ --tb=short -q
+          else
+            echo "Nenhum teste unitário encontrado ainda. Etapa mantida como informativa."
+          fi
+
+  # ─────────────────────────────────────────────
+  # ETAPA 2 — ENTREGA CONTÍNUA
+  # Build + Push das imagens Docker
+  # Só roda em push na main
+  # ─────────────────────────────────────────────
+  build-and-push:
+    name: "CD — Build e Push das imagens Docker"
+    runs-on: [self-hosted, Linux, X64, devsecops]
+    needs: ci
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Login no Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build e Push — auth_service
+        run: |
+          docker build -t $IMAGE_PREFIX-auth:latest microsservicos/auth_service/
+          docker push $IMAGE_PREFIX-auth:latest
+
+      - name: Build e Push — doctors_service
+        run: |
+          docker build -t $IMAGE_PREFIX-doctors:latest microsservicos/doctors_service/
+          docker push $IMAGE_PREFIX-doctors:latest
+
+      - name: Build e Push — schedule_service
+        run: |
+          docker build -t $IMAGE_PREFIX-schedule:latest microsservicos/schedule_service/
+          docker push $IMAGE_PREFIX-schedule:latest
+
+      - name: Build e Push — recovery_service
+        run: |
+          docker build -t $IMAGE_PREFIX-recovery:latest microsservicos/recovery_service/
+          docker push $IMAGE_PREFIX-recovery:latest
+
+      - name: Build e Push — gateway
+        run: |
+          docker build -t $IMAGE_PREFIX-gateway:latest microsservicos/gateway/
+          docker push $IMAGE_PREFIX-gateway:latest
+
+      - name: Build e Push — frontend
+        run: |
+          docker build -t $IMAGE_PREFIX-frontend:latest frontend/
+          docker push $IMAGE_PREFIX-frontend:latest 
+
+  # ─────────────────────────────────────────────
+  # ETAPA 3 — IMPLANTAÇÃO CONTÍNUA
+  # Deploy no Kubernetes
+  # Só roda em push na main
+  # ─────────────────────────────────────────────
+  deploy:
+    name: "CD — Deploy no Kubernetes"
+    runs-on: [self-hosted, Linux, X64, devsecops]
+    needs: build-and-push
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Criar namespace medmatch
+        run: |
+          kubectl create namespace medmatch --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Criar Kubernetes Secrets via GitHub Secrets
+        run: |
+          kubectl create secret generic medmatch-credentials-db-secret \
+            --namespace=medmatch \
+            --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
+            --from-literal=MYSQL_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --from-literal=MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}" \
+            --from-literal=MYSQL_DATABASE="medmatch_credentials" \
+            --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic medmatch-doctors-db-secret \
+            --namespace=medmatch \
+            --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
+            --from-literal=MYSQL_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --from-literal=MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}" \
+            --from-literal=MYSQL_DATABASE="medmatch_doctors" \
+            --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic medmatch-scheduling-db-secret \
+            --namespace=medmatch \
+            --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
+            --from-literal=MYSQL_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --from-literal=MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}" \
+            --from-literal=MYSQL_DATABASE="medmatch_scheduling" \
+            --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic medmatch-jwt-secret \
+            --namespace=medmatch \
+            --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Criar ConfigMaps com schemas SQL
+        run: |
+          kubectl create configmap credentials-db-init \
+            --namespace=medmatch \
+            --from-file=init.sql=sql/init_credentials.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create configmap doctors-db-init \
+            --namespace=medmatch \
+            --from-file=init.sql=sql/init_doctors.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create configmap scheduling-db-init \
+            --namespace=medmatch \
+            --from-file=init.sql=sql/init_scheduling.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Preparar manifestos Kubernetes
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          rm -rf k8s-rendered
+          cp -r k8s k8s-rendered
+
+          find k8s-rendered -type f -name "*.yaml" -exec sed -i "s|SEU_DOCKER_USER|$DOCKER_USERNAME|g" {} \;
+
+          if grep -R "SEU_DOCKER_USER" k8s-rendered; then
+            echo "ERRO: ainda existe placeholder SEU_DOCKER_USER nos manifestos."
+            exit 1
+          fi
+
+      - name: Aplicar bancos de dados
+        run: |
+          kubectl apply -f k8s-rendered/database.yaml
+
+      - name: Aguardar bancos de dados
+        run: |
+          kubectl rollout status deployment/credentials-db -n medmatch --timeout=180s
+          kubectl rollout status deployment/doctors-db -n medmatch --timeout=180s
+          kubectl rollout status deployment/scheduling-db -n medmatch --timeout=180s
+
+      - name: Aplicar microsserviços
+        run: |
+          kubectl apply -f k8s-rendered/deployments.yaml
+
+      - name: Aplicar gateway
+        run: |
+          kubectl apply -f k8s-rendered/gateway.yaml
+
+      - name: Aplicar frontend
+        run: |
+          kubectl apply -f k8s-rendered/frontend.yaml
+
+      - name: Verificar status do rollout
+        run: |
+          kubectl rollout status deployment/auth-service -n medmatch --timeout=180s
+          kubectl rollout status deployment/recovery-service -n medmatch --timeout=180s
+          kubectl rollout status deployment/doctors-service -n medmatch --timeout=180s
+          kubectl rollout status deployment/schedule-service -n medmatch --timeout=180s
+          kubectl rollout status deployment/gateway -n medmatch --timeout=180s
+          kubectl rollout status deployment/frontend -n medmatch --timeout=180s
+          
+      - name: Exibir recursos implantados
+        run: |
+          kubectl get pods -n medmatch -o wide
+          kubectl get svc -n medmatch
+
+      - name: Diagnóstico em caso de falha
+        if: failure()
+        run: |
+          kubectl get pods -n medmatch -o wide || true
+          kubectl describe pods -n medmatch || true
+          kubectl get events -n medmatch --sort-by=.lastTimestamp || true
