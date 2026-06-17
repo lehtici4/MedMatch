@@ -1,15 +1,54 @@
 # ─────────────────────────────────────────────────────────────────
-# BANCOS DE DADOS — MedMatch
-# 3 BDs separados conforme arquitetura do amigo
-# Secrets injetados via secretKeyRef (sem hardcode, sem .env)
+# DATABASES — MedMatch
+# MySQL com PVC + init SQL via ConfigMap
 # ─────────────────────────────────────────────────────────────────
 
-# ── BD de Credenciais (auth + recovery) ──────────────────────────
+# ── PVCs ──────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: credentials-db-pvc
+  namespace: medmatch
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: doctors-db-pvc
+  namespace: medmatch
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scheduling-db-pvc
+  namespace: medmatch
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# ── Credentials DB ────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: credentials-db
   namespace: medmatch
+  labels:
+    app: credentials-db
 spec:
   replicas: 1
   selector:
@@ -20,24 +59,12 @@ spec:
       labels:
         app: credentials-db
     spec:
-      securityContext:
-        runAsUser: 999
-        fsGroup: 999
       containers:
         - name: mysql
           image: mysql:8.0
           ports:
             - containerPort: 3306
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
           env:
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-credentials-db-secret
-                  key: MYSQL_ROOT_PASSWORD
             - name: MYSQL_DATABASE
               valueFrom:
                 secretKeyRef:
@@ -53,12 +80,44 @@ spec:
                 secretKeyRef:
                   name: medmatch-credentials-db-secret
                   key: MYSQL_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-credentials-db-secret
+                  key: MYSQL_ROOT_PASSWORD
           volumeMounts:
-            - name: data
+            - name: credentials-db-data
               mountPath: /var/lib/mysql
+            - name: credentials-db-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
       volumes:
-        - name: data
-          emptyDir: {}
+        - name: credentials-db-data
+          persistentVolumeClaim:
+            claimName: credentials-db-pvc
+        - name: credentials-db-init
+          configMap:
+            name: credentials-db-init
 ---
 apiVersion: v1
 kind: Service
@@ -74,12 +133,14 @@ spec:
   type: ClusterIP
 
 ---
-# ── BD de Médicos ─────────────────────────────────────────────────
+# ── Doctors DB ────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: doctors-db
   namespace: medmatch
+  labels:
+    app: doctors-db
 spec:
   replicas: 1
   selector:
@@ -90,24 +151,12 @@ spec:
       labels:
         app: doctors-db
     spec:
-      securityContext:
-        runAsUser: 999
-        fsGroup: 999
       containers:
         - name: mysql
           image: mysql:8.0
           ports:
             - containerPort: 3306
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
           env:
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-doctors-db-secret
-                  key: MYSQL_ROOT_PASSWORD
             - name: MYSQL_DATABASE
               valueFrom:
                 secretKeyRef:
@@ -123,12 +172,44 @@ spec:
                 secretKeyRef:
                   name: medmatch-doctors-db-secret
                   key: MYSQL_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-doctors-db-secret
+                  key: MYSQL_ROOT_PASSWORD
           volumeMounts:
-            - name: data
+            - name: doctors-db-data
               mountPath: /var/lib/mysql
+            - name: doctors-db-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
       volumes:
-        - name: data
-          emptyDir: {}
+        - name: doctors-db-data
+          persistentVolumeClaim:
+            claimName: doctors-db-pvc
+        - name: doctors-db-init
+          configMap:
+            name: doctors-db-init
 ---
 apiVersion: v1
 kind: Service
@@ -144,12 +225,14 @@ spec:
   type: ClusterIP
 
 ---
-# ── BD de Agendamentos ────────────────────────────────────────────
+# ── Scheduling DB ─────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: scheduling-db
   namespace: medmatch
+  labels:
+    app: scheduling-db
 spec:
   replicas: 1
   selector:
@@ -160,24 +243,12 @@ spec:
       labels:
         app: scheduling-db
     spec:
-      securityContext:
-        runAsUser: 999
-        fsGroup: 999
       containers:
         - name: mysql
           image: mysql:8.0
           ports:
             - containerPort: 3306
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
           env:
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-scheduling-db-secret
-                  key: MYSQL_ROOT_PASSWORD
             - name: MYSQL_DATABASE
               valueFrom:
                 secretKeyRef:
@@ -193,12 +264,44 @@ spec:
                 secretKeyRef:
                   name: medmatch-scheduling-db-secret
                   key: MYSQL_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-scheduling-db-secret
+                  key: MYSQL_ROOT_PASSWORD
           volumeMounts:
-            - name: data
+            - name: scheduling-db-data
               mountPath: /var/lib/mysql
+            - name: scheduling-db-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
       volumes:
-        - name: data
-          emptyDir: {}
+        - name: scheduling-db-data
+          persistentVolumeClaim:
+            claimName: scheduling-db-pvc
+        - name: scheduling-db-init
+          configMap:
+            name: scheduling-db-init
 ---
 apiVersion: v1
 kind: Service

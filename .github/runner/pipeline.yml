@@ -179,6 +179,23 @@ jobs:
             --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Criar ConfigMaps com schemas SQL
+        run: |
+          kubectl create configmap credentials-db-init \
+            --namespace=medmatch \
+            --from-file=init.sql=sql/init_credentials.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create configmap doctors-db-init \
+            --namespace=medmatch \
+            --from-file=init.sql=sql/init_doctors.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create configmap scheduling-db-init \
+            --namespace=medmatch \
+            --from-file=init.sql=sql/init_scheduling.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Preparar manifestos Kubernetes
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
