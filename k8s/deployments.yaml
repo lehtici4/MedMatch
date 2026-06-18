@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────
 # MICROSSERVIÇOS — MedMatch
-# Todos com securityContext (Pod Security) e Secrets injetados
+# Deployments + Services internos
 # ─────────────────────────────────────────────────────────────────
 
 # ── Auth Service ──────────────────────────────────────────────────
@@ -37,26 +37,25 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-db-secret
-                  key: MYSQL_PASSWORD
+            - name: DB_HOST
+              value: "credentials-db"
+            - name: DB_NAME
+              value: "medmatch_credentials"
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: medmatch-db-secret
+                  name: medmatch-credentials-db-secret
                   key: MYSQL_USER
-            - name: JWT_SECRET_KEY
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-credentials-db-secret
+                  key: MYSQL_PASSWORD
+            - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: medmatch-jwt-secret
-                  key: JWT_SECRET_KEY
-            - name: DB_HOST
-              value: "mysql"
-            - name: DB_NAME
-              value: "medmatch_db"
-
+                  key: JWT_SECRET
 ---
 apiVersion: v1
 kind: Service
@@ -66,6 +65,142 @@ metadata:
 spec:
   selector:
     app: auth-service
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP
+
+---
+# ── Recovery Service ──────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recovery-service
+  namespace: medmatch
+  labels:
+    app: medmatch
+    component: recovery
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recovery-service
+  template:
+    metadata:
+      labels:
+        app: recovery-service
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: recovery-service
+          image: SEU_DOCKER_USER/medmatch-recovery:latest
+          ports:
+            - containerPort: 8000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: DB_HOST
+              value: "credentials-db"
+            - name: DB_NAME
+              value: "medmatch_credentials"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-credentials-db-secret
+                  key: MYSQL_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-credentials-db-secret
+                  key: MYSQL_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-jwt-secret
+                  key: JWT_SECRET
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recovery-service
+  namespace: medmatch
+spec:
+  selector:
+    app: recovery-service
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP
+
+---
+# ── Doctors Service ───────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: doctors-service
+  namespace: medmatch
+  labels:
+    app: medmatch
+    component: doctors
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: doctors-service
+  template:
+    metadata:
+      labels:
+        app: doctors-service
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: doctors-service
+          image: SEU_DOCKER_USER/medmatch-doctors:latest
+          ports:
+            - containerPort: 8000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: DB_HOST
+              value: "doctors-db"
+            - name: DB_NAME
+              value: "medmatch_doctors"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-doctors-db-secret
+                  key: MYSQL_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-doctors-db-secret
+                  key: MYSQL_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-jwt-secret
+                  key: JWT_SECRET
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: doctors-service
+  namespace: medmatch
+spec:
+  selector:
+    app: doctors-service
   ports:
     - port: 8000
       targetPort: 8000
@@ -99,28 +234,32 @@ spec:
         - name: schedule-service
           image: SEU_DOCKER_USER/medmatch-schedule:latest
           ports:
-            - containerPort: 8001
+            - containerPort: 8000
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           env:
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-db-secret
-                  key: MYSQL_PASSWORD
+            - name: DB_HOST
+              value: "scheduling-db"
+            - name: DB_NAME
+              value: "medmatch_scheduling"
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: medmatch-db-secret
+                  name: medmatch-scheduling-db-secret
                   key: MYSQL_USER
-            - name: DB_HOST
-              value: "mysql"
-            - name: DB_NAME
-              value: "medmatch_db"
-
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-scheduling-db-secret
+                  key: MYSQL_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: medmatch-jwt-secret
+                  key: JWT_SECRET
 ---
 apiVersion: v1
 kind: Service
@@ -131,139 +270,6 @@ spec:
   selector:
     app: schedule-service
   ports:
-    - port: 8001
-      targetPort: 8001
-  type: ClusterIP
-
----
-# ── Doctors Service ───────────────────────────────────────────────
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: doctors-service
-  namespace: medmatch
-  labels:
-    app: medmatch
-    component: doctors
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: doctors-service
-  template:
-    metadata:
-      labels:
-        app: doctors-service
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
-      containers:
-        - name: doctors-service
-          image: SEU_DOCKER_USER/medmatch-doctors:latest
-          ports:
-            - containerPort: 8002
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          env:
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-db-secret
-                  key: MYSQL_PASSWORD
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-db-secret
-                  key: MYSQL_USER
-            - name: DB_HOST
-              value: "mysql"
-            - name: DB_NAME
-              value: "medmatch_db"
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: doctors-service
-  namespace: medmatch
-spec:
-  selector:
-    app: doctors-service
-  ports:
-    - port: 8002
-      targetPort: 8002
-  type: ClusterIP
-
----
-# ── Recovery Service ──────────────────────────────────────────────
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: recovery-service
-  namespace: medmatch
-  labels:
-    app: medmatch
-    component: recovery
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: recovery-service
-  template:
-    metadata:
-      labels:
-        app: recovery-service
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
-      containers:
-        - name: recovery-service
-          image: SEU_DOCKER_USER/medmatch-recovery:latest
-          ports:
-            - containerPort: 8003
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          env:
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-db-secret
-                  key: MYSQL_PASSWORD
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-db-secret
-                  key: MYSQL_USER
-            - name: JWT_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: medmatch-jwt-secret
-                  key: JWT_SECRET_KEY
-            - name: DB_HOST
-              value: "mysql"
-            - name: DB_NAME
-              value: "medmatch_db"
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: recovery-service
-  namespace: medmatch
-spec:
-  selector:
-    app: recovery-service
-  ports:
-    - port: 8003
-      targetPort: 8003
+    - port: 8000
+      targetPort: 8000
   type: ClusterIP

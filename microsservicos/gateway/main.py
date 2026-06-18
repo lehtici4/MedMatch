@@ -5,7 +5,7 @@ Centraliza entrada de requisições, valida tokens e roteia para os microsservi�
 
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import httpx
 import logging
 import os
@@ -72,11 +72,87 @@ async def proxy(destino: str, request: Request, token: str | None = None) -> JSO
             if resp.status_code >= 500:
                 logger.error(f"Erro interno ao rotear para {destino}: {resp.text}")
                 return JSONResponse(status_code=502, content={"detail": "Serviço temporariamente indisponível"})
-            return JSONResponse(status_code=resp.status_code, content=resp.json())
+
+            if resp.status_code == 204 or not resp.content:
+                return Response(status_code=resp.status_code)
+
+            try:
+                content = resp.json()
+            except ValueError:
+                content = {"detail": resp.text}
+
+            return JSONResponse(status_code=resp.status_code, content=content)
         except httpx.RequestError as e:
             logger.error(f"Erro de conexão com {destino}: {e}")
             return JSONResponse(status_code=503, content={"detail": "Serviço indisponível"})
 
+
+
+async def proxy_scheduling_minhas_consultas(request: Request, token: str) -> JSONResponse:
+    """
+    Busca as consultas no Scheduling Service e enriquece o retorno com dados públicos
+    do Doctors Service. Isso evita mostrar apenas "Medico #id" no frontend.
+    """
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers["Authorization"] = f"Bearer {token}"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(
+                f"{SCHEDULING_SERVICE_URL}/consultas/minhas",
+                headers=headers,
+                params=request.query_params,
+                timeout=10.0,
+            )
+
+            if resp.status_code >= 500:
+                logger.error(f"Erro no Scheduling Service: {resp.text}")
+                return JSONResponse(status_code=502, content={"detail": "Serviço temporariamente indisponível"})
+
+            if resp.status_code != 200:
+                try:
+                    return JSONResponse(status_code=resp.status_code, content=resp.json())
+                except ValueError:
+                    return JSONResponse(status_code=resp.status_code, content={"detail": resp.text})
+
+            consultas = resp.json()
+            medicos_cache = {}
+
+            for consulta in consultas:
+                medico_id = consulta.get("medico_id")
+                if not medico_id:
+                    continue
+
+                if medico_id not in medicos_cache:
+                    try:
+                        medico_resp = await client.get(
+                            f"{DOCTORS_SERVICE_URL}/medicos/{medico_id}",
+                            timeout=5.0,
+                        )
+                        medicos_cache[medico_id] = medico_resp.json() if medico_resp.status_code == 200 else None
+                    except httpx.RequestError:
+                        medicos_cache[medico_id] = None
+
+                medico = medicos_cache.get(medico_id)
+                if medico:
+                    consulta["medico_nome"] = medico.get("nome") or consulta.get("medico_nome") or f"Médico #{medico_id}"
+                    consulta["especialidade"] = medico.get("especialidade") or consulta.get("especialidade") or "-"
+                    consulta["crm"] = medico.get("crm")
+                else:
+                    consulta["medico_nome"] = consulta.get("medico_nome") or f"Médico #{medico_id}"
+                    consulta["especialidade"] = consulta.get("especialidade") or "-"
+
+            return JSONResponse(status_code=200, content=consultas)
+
+        except httpx.RequestError as e:
+            logger.error(f"Erro ao enriquecer consultas: {e}")
+            return JSONResponse(status_code=503, content={"detail": "Serviço indisponível"})
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "gateway"}
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -119,11 +195,9 @@ async def gateway(
     elif servico == "doctors":
         return await proxy(f"{DOCTORS_SERVICE_URL}/{sub_path}", request, token)
     elif servico == "scheduling":
+        if method == "GET" and sub_path == "consultas/minhas":
+            return await proxy_scheduling_minhas_consultas(request, token)
         return await proxy(f"{SCHEDULING_SERVICE_URL}/{sub_path}", request, token)
     else:
         raise HTTPException(status_code=404, detail="Rota não encontrada")
 
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": "gateway"}

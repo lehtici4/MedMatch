@@ -26,7 +26,9 @@ import os
 
 app = FastAPI(title="MedMatch - Scheduling Service")
 
-SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET não configurado")
 bearer_scheme = HTTPBearer()
 
 # Rate limiting
@@ -71,6 +73,9 @@ class AgendarRequest(BaseModel):
     medico_id: int
     horario_id: int  # ID do slot de horário disponível
 
+class CriarHorarioRequest(BaseModel):
+    data_hora: datetime
+
 class RemarcarRequest(BaseModel):
     novo_horario_id: int
 
@@ -86,7 +91,7 @@ def consultar_horarios(medico_id: int, data: Optional[date] = None):
     cursor = db.cursor(dictionary=True)
     if data:
         cursor.execute(
-            """SELECT h.id, h.data_hora
+            """SELECT h.id, h.data_hora, h.disponivel
                FROM horarios h
                WHERE h.medico_id = %s AND DATE(h.data_hora) = %s AND h.disponivel = TRUE
                ORDER BY h.data_hora""",
@@ -94,7 +99,7 @@ def consultar_horarios(medico_id: int, data: Optional[date] = None):
         )
     else:
         cursor.execute(
-            """SELECT h.id, h.data_hora
+            """SELECT h.id, h.data_hora, h.disponivel
                FROM horarios h
                WHERE h.medico_id = %s AND h.disponivel = TRUE AND h.data_hora >= NOW()
                ORDER BY h.data_hora""",
@@ -201,6 +206,9 @@ def remarcar_consulta(consulta_id: int, req: RemarcarRequest, usuario: dict = De
     if not novo_horario:
         raise HTTPException(status_code=409, detail="Novo horário indisponível")
 
+    if novo_horario["medico_id"] != consulta["medico_id"]:
+        raise HTTPException(status_code=400, detail="Novo horário não pertence ao mesmo médico da consulta")
+
     try:
         # Liberar horário antigo e ocupar novo
         cursor.execute("UPDATE horarios SET disponivel = TRUE WHERE id = %s", (consulta["horario_id"],))
@@ -223,23 +231,38 @@ def remarcar_consulta(consulta_id: int, req: RemarcarRequest, usuario: dict = De
 
 @app.get("/agenda")
 def ver_agenda(usuario: dict = Depends(exigir_medico)):
-    """RF10 - Médico visualiza sua própria agenda com dados do paciente"""
+    """
+    RF10 - Médico visualiza sua agenda.
+    Para manter isolamento entre bancos, o serviço de agendamento retorna o paciente_id
+    e campos auxiliares sem depender de JOIN com o banco de credenciais.
+    """
     db = get_db()
     cursor = db.cursor(dictionary=True)
     cursor.execute(
-        """SELECT c.id, h.data_hora, c.status,
-                  p.nome AS paciente_nome, p.email AS paciente_email, p.telefone AS paciente_telefone,
-                  c.observacoes
+        """SELECT c.id, c.paciente_id, h.data_hora, c.status, c.observacoes
            FROM consultas c
            JOIN horarios h ON c.horario_id = h.id
-           JOIN pacientes_view p ON c.paciente_id = p.id
            WHERE c.medico_id = %s AND c.status NOT IN ('cancelada')
            ORDER BY h.data_hora""",
         (usuario["usuario_id"],),
     )
-    agenda = cursor.fetchall()
+    consultas = cursor.fetchall()
     cursor.close()
     db.close()
+
+    agenda = []
+    for c in consultas:
+        agenda.append({
+            "id": c["id"],
+            "data_hora": c["data_hora"],
+            "status": c["status"],
+            "observacoes": c["observacoes"],
+            "paciente_id": c["paciente_id"],
+            "paciente_nome": f"Paciente #{c['paciente_id']}",
+            "paciente_email": "-",
+            "paciente_telefone": "-"
+        })
+
     return agenda
 
 
@@ -271,6 +294,74 @@ def atualizar_status(consulta_id: int, req: StatusRequest, usuario: dict = Depen
     cursor.close()
     db.close()
     return {"mensagem": f"Status atualizado para '{req.status}'"}
+
+
+
+@app.get("/consultas/minhas")
+def minhas_consultas(usuario: dict = Depends(get_current_user)):
+    """Paciente visualiza suas próprias consultas"""
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    cursor.execute(
+        """SELECT c.id, h.data_hora, c.status, c.medico_id, c.observacoes,
+                  CONCAT('Medico #', c.medico_id) AS medico_nome,
+                  '-' AS especialidade
+           FROM consultas c
+           JOIN horarios h ON c.horario_id = h.id
+           WHERE c.paciente_id = %s
+           ORDER BY h.data_hora DESC""",
+        (usuario["usuario_id"],),
+    )
+    consultas = cursor.fetchall()
+    cursor.close()
+    db.close()
+    return consultas
+
+
+@app.post("/horarios", status_code=201)
+def criar_horario(req: CriarHorarioRequest, usuario: dict = Depends(exigir_medico)):
+    """Médico cadastra seus próprios horários disponíveis"""
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO horarios (medico_id, data_hora, disponivel) VALUES (%s, %s, TRUE)",
+            (usuario["usuario_id"], req.data_hora),
+        )
+        db.commit()
+        horario_id = cursor.lastrowid
+        logger.info(f"[AUDIT] HORARIO_CRIADO id={horario_id} medico_id={usuario['usuario_id']}")
+        return {"id": horario_id, "data_hora": req.data_hora, "disponivel": True}
+    except mysql.connector.IntegrityError:
+        raise HTTPException(status_code=409, detail="Horário já cadastrado para este médico neste horário")
+    finally:
+        cursor.close()
+        db.close()
+
+
+@app.delete("/horarios/{horario_id}", status_code=200)
+def remover_horario(horario_id: int, usuario: dict = Depends(exigir_medico)):
+    """Médico remove um horário disponível que ainda não foi agendado"""
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM horarios WHERE id = %s", (horario_id,))
+    horario = cursor.fetchone()
+
+    if not horario:
+        raise HTTPException(status_code=404, detail="Horário não encontrado")
+
+    if usuario["perfil"] == "medico" and horario["medico_id"] != usuario["usuario_id"]:
+        raise HTTPException(status_code=403, detail="Sem permissão para remover este horário")
+
+    if not horario["disponivel"]:
+        raise HTTPException(status_code=400, detail="Horário já agendado, cancele a consulta antes de remover")
+
+    cursor.execute("DELETE FROM horarios WHERE id = %s", (horario_id,))
+    db.commit()
+    logger.info(f"[AUDIT] HORARIO_REMOVIDO id={horario_id} medico_id={usuario['usuario_id']}")
+    cursor.close()
+    db.close()
+    return {"mensagem": "Horário removido"}
 
 
 @app.get("/health")

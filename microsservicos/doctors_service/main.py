@@ -22,7 +22,9 @@ import os
 
 app = FastAPI(title="MedMatch - Doctors & Specialties Service")
 
-SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET não configurado")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 # Rate Limiter
@@ -79,6 +81,7 @@ class MedicoUpdate(BaseModel):
     email_profissional: Optional[EmailStr] = None
     telefone_profissional: Optional[str] = None
     especialidade_id: Optional[int] = None
+    crm: Optional[str] = None
 
 # Especialidades
 
@@ -154,14 +157,14 @@ def listar_medicos(request: Request, especialidade_id: Optional[int] = None):
     cursor = db.cursor(dictionary=True)
     if especialidade_id:
         cursor.execute(
-            """SELECT m.id, m.nome, e.nome AS especialidade, m.email_profissional, m.telefone_profissional
+            """SELECT m.id, m.nome, m.crm, m.especialidade_id, e.nome AS especialidade, m.email_profissional, m.telefone_profissional
                FROM medicos m JOIN especialidades e ON m.especialidade_id = e.id
                WHERE m.especialidade_id = %s ORDER BY m.nome""",
             (especialidade_id,),
         )
     else:
         cursor.execute(
-            """SELECT m.id, m.nome, e.nome AS especialidade, m.email_profissional, m.telefone_profissional
+            """SELECT m.id, m.nome, m.crm, m.especialidade_id, e.nome AS especialidade, m.email_profissional, m.telefone_profissional
                FROM medicos m JOIN especialidades e ON m.especialidade_id = e.id
                ORDER BY m.nome"""
         )
@@ -178,7 +181,7 @@ def detalhar_medico(medico_id: int, request: Request):
     db = get_db()
     cursor = db.cursor(dictionary=True)
     cursor.execute(
-        """SELECT m.id, m.nome, e.nome AS especialidade, m.email_profissional, m.telefone_profissional, m.crm
+        """SELECT m.id, m.nome, m.crm, m.especialidade_id, e.nome AS especialidade, m.email_profissional, m.telefone_profissional
            FROM medicos m JOIN especialidades e ON m.especialidade_id = e.id
            WHERE m.id = %s""",
         (medico_id,),

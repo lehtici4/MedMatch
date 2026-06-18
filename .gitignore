@@ -31,3 +31,11 @@ safety-report.txt
 # ── Sistema ───────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+# Local/generated files
+node_modules/
+frontend/node_modules/
+.env
+__pycache__/
+.pytest_cache/
+dist/
+.ci-venv/
