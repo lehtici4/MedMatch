@@ -11,12 +11,6 @@ env:
   IMAGE_PREFIX: ${{ secrets.DOCKER_USERNAME }}/medmatch
 
 jobs:
-
-  # ─────────────────────────────────────────────
-  # ETAPA 1 — INTEGRAÇÃO CONTÍNUA (CI)
-  # Testes + SAST + SCA
-  # Roda em push e pull_request
-  # ─────────────────────────────────────────────
   ci:
     name: "CI — Testes, SAST e SCA"
     runs-on: [self-hosted, Linux, X64, devsecops]
@@ -46,7 +40,6 @@ jobs:
             fi
           done
 
-      # ── SCA: verifica vulnerabilidades nas dependências ──
       - name: "SCA — Safety"
         run: |
           echo "Relatório SCA — Safety" > safety-report.txt
@@ -65,7 +58,6 @@ jobs:
           name: safety-report
           path: safety-report.txt
 
-      # ── SAST: analisa código Python ──
       - name: "SAST — Semgrep"
         run: |
           semgrep scan \
@@ -90,19 +82,11 @@ jobs:
             echo "Nenhum teste unitário encontrado ainda. Etapa mantida como informativa."
           fi
 
-  # ─────────────────────────────────────────────
-  # ETAPA 2 — ENTREGA CONTÍNUA
-  # Build + Push das imagens Docker
-  # Só roda em push na main
-  # ─────────────────────────────────────────────
   build-and-push:
     name: "CD — Build e Push das imagens Docker"
     runs-on: [self-hosted, Linux, X64, devsecops]
     needs: ci
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-  (github.event_name == 'push' && github.ref == 'refs/heads/integration/final-medmatch')
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/integration/final-medmatch')) }}
 
     steps:
       - name: Checkout do código
@@ -139,21 +123,13 @@ jobs:
       - name: Build e Push — frontend
         run: |
           docker build -t $IMAGE_PREFIX-frontend:latest frontend/
-          docker push $IMAGE_PREFIX-frontend:latest 
+          docker push $IMAGE_PREFIX-frontend:latest
 
-  # ─────────────────────────────────────────────
-  # ETAPA 3 — IMPLANTAÇÃO CONTÍNUA
-  # Deploy no Kubernetes
-  # Só roda em push na main
-  # ─────────────────────────────────────────────
   deploy:
     name: "CD — Deploy no Kubernetes"
     runs-on: [self-hosted, Linux, X64, devsecops]
     needs: build-and-push
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-  (github.event_name == 'push' && github.ref == 'refs/heads/integration/final-medmatch')
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/integration/final-medmatch')) }}
 
     steps:
       - name: Checkout do código
@@ -261,7 +237,7 @@ jobs:
           kubectl rollout status deployment/schedule-service -n medmatch --timeout=180s
           kubectl rollout status deployment/gateway -n medmatch --timeout=180s
           kubectl rollout status deployment/frontend -n medmatch --timeout=180s
-          
+
       - name: Exibir recursos implantados
         run: |
           kubectl get pods -n medmatch -o wide
