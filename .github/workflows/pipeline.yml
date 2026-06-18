@@ -25,9 +25,14 @@ jobs:
       - name: Checkout do código
         uses: actions/checkout@v4
 
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Instalar dependências Python
         run: |
-          python3 -m pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install safety semgrep pytest
 
           for service in auth_service doctors_service schedule_service recovery_service gateway; do
