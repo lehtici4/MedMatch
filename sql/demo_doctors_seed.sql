@@ -1,3 +1,6 @@
+-- Dados demonstrativos para apresentação
+-- 3 médicos por especialidade
+
 INSERT INTO medicos (id, nome, email_profissional, telefone_profissional, especialidade_id, crm)
 SELECT 1, 'Dra. Ana Cardoso', 'ana.cardoso@medmatch.local', '(41) 99999-1001', id, 'CRM-PR-1001'
 FROM especialidades WHERE nome = 'Cardiologia'

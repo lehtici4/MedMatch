@@ -122,6 +122,118 @@ const css = `
   .section-title { font-size: 18px; font-weight: 700; }
 
   @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  /* Polish visual - CSS only */
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(37, 99, 235, .08), transparent 30%),
+      linear-gradient(180deg, #f8fbff 0%, #f3f6fb 100%);
+  }
+
+  nav {
+    height: 68px;
+    padding: 0 32px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, .08);
+  }
+
+  nav .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 20px;
+    font-weight: 800;
+  }
+
+  nav .brand::before {
+    content: "✚";
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: var(--primary);
+    color: white;
+    font-size: 16px;
+    box-shadow: 0 8px 20px rgba(37, 99, 235, .25);
+  }
+
+  .container {
+    max-width: 1040px;
+    padding-top: 36px;
+  }
+
+  .card,
+  .auth-card {
+    border-radius: 16px;
+    box-shadow: 0 14px 30px rgba(15, 23, 42, .08);
+  }
+
+  .tabs {
+    background: rgba(255,255,255,.75);
+    border: 1px solid var(--border);
+    padding: 6px;
+    border-radius: 999px;
+    width: fit-content;
+    margin-bottom: 22px;
+  }
+
+  .tab {
+    border-radius: 999px;
+    border-bottom: 0;
+    margin-bottom: 0;
+    padding: 10px 18px;
+  }
+
+  .tab.active {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, .22);
+  }
+
+  .field input,
+  .field select {
+    min-height: 44px;
+    background: white;
+  }
+
+  .btn {
+    min-height: 38px;
+    border-radius: 10px;
+  }
+
+  .btn-primary {
+    box-shadow: 0 8px 18px rgba(37, 99, 235, .22);
+  }
+
+  th {
+    background: #f8fafc;
+    padding: 12px 14px;
+  }
+
+  td {
+    padding: 14px;
+    vertical-align: middle;
+  }
+
+  .alert {
+    border-radius: 12px;
+    padding: 13px 16px;
+    font-weight: 500;
+  }
+
+  @media (max-width: 760px) {
+    nav { padding: 0 16px; }
+    .container { padding: 20px 12px; }
+    .card { padding: 18px; }
+    .tabs { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+    .tab { text-align: center; }
+    table { display: block; overflow-x: auto; }
+  }
+
 `;
 
 // ── Shared components ─────────────────────────────────────────────────────────

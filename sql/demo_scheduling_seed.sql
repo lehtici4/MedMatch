@@ -1,7 +1,13 @@
+-- Seed local de demonstração
+-- Recarrega horários limpos para testes manuais no Docker Compose.
+
+DELETE FROM consultas;
+DELETE FROM horarios;
+
 INSERT INTO horarios (medico_id, data_hora, disponivel)
 SELECT med.id,
        DATE_ADD(
-         DATE_ADD('2030-01-10 08:00:00', INTERVAL med.id DAY),
+         DATE_ADD(CURDATE(), INTERVAL med.id DAY),
          INTERVAL slot.hora HOUR
        ) AS data_hora,
        TRUE AS disponivel
@@ -13,14 +19,5 @@ FROM (
   SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15
 ) med
 CROSS JOIN (
-  SELECT 0 AS hora UNION ALL SELECT 1 UNION ALL SELECT 2
-) slot
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM horarios h
-  WHERE h.medico_id = med.id
-    AND h.data_hora = DATE_ADD(
-      DATE_ADD('2030-01-10 08:00:00', INTERVAL med.id DAY),
-      INTERVAL slot.hora HOUR
-    )
-);
+  SELECT 8 AS hora UNION ALL SELECT 9 UNION ALL SELECT 10
+) slot;
