@@ -101,7 +101,8 @@ jobs:
     needs: ci
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+  (github.event_name == 'push' && github.ref == 'refs/heads/integration/final-medmatch')
 
     steps:
       - name: Checkout do código
@@ -151,7 +152,8 @@ jobs:
     needs: build-and-push
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+  (github.event_name == 'push' && github.ref == 'refs/heads/integration/final-medmatch')
 
     steps:
       - name: Checkout do código
