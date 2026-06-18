@@ -146,34 +146,39 @@ jobs:
           kubectl create namespace medmatch --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Criar Kubernetes Secrets via GitHub Secrets
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
           kubectl create secret generic medmatch-credentials-db-secret \
             --namespace=medmatch \
-            --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
-            --from-literal=MYSQL_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-            --from-literal=MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}" \
+            --from-literal=MYSQL_USER="$DB_USER" \
+            --from-literal=MYSQL_PASSWORD="$DB_PASSWORD" \
+            --from-literal=MYSQL_ROOT_PASSWORD="$DB_ROOT_PASSWORD" \
             --from-literal=MYSQL_DATABASE="medmatch_credentials" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
           kubectl create secret generic medmatch-doctors-db-secret \
             --namespace=medmatch \
-            --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
-            --from-literal=MYSQL_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-            --from-literal=MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}" \
+            --from-literal=MYSQL_USER="$DB_USER" \
+            --from-literal=MYSQL_PASSWORD="$DB_PASSWORD" \
+            --from-literal=MYSQL_ROOT_PASSWORD="$DB_ROOT_PASSWORD" \
             --from-literal=MYSQL_DATABASE="medmatch_doctors" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
           kubectl create secret generic medmatch-scheduling-db-secret \
             --namespace=medmatch \
-            --from-literal=MYSQL_USER="${{ secrets.DB_USER }}" \
-            --from-literal=MYSQL_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-            --from-literal=MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}" \
+            --from-literal=MYSQL_USER="$DB_USER" \
+            --from-literal=MYSQL_PASSWORD="$DB_PASSWORD" \
+            --from-literal=MYSQL_ROOT_PASSWORD="$DB_ROOT_PASSWORD" \
             --from-literal=MYSQL_DATABASE="medmatch_scheduling" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
           kubectl create secret generic medmatch-jwt-secret \
             --namespace=medmatch \
-            --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
             --save-config --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Criar ConfigMaps com schemas SQL
